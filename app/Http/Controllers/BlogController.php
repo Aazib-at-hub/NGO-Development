@@ -4,23 +4,60 @@ namespace App\Http\Controllers;
 
 use App\Models\Blog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class BlogController extends Controller
 {
     // List all blogs
-    public function index()
+    public function index(Request $request)
     {
-        return Blog::with('user')->get();
+        $blogs = Blog::with('user')->latest()->get();
+        
+        if ($request->expectsJson()) {
+            return $blogs;
+        }
+        
+        return view('blog.index', compact('blogs'));
     }
 
     // Show single blog
-    public function show($id)
+    public function show(Request $request, $id)
     {
         $blog = Blog::with('user')->find($id);
         if (!$blog) {
-            return response()->json(['message' => 'Blog not found'], 404);
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Blog not found'], 404);
+            }
+            return redirect()->route('blog.index')->with('error', 'Blog not found');
         }
-        return $blog;
+        
+        if ($request->expectsJson()) {
+            return $blog;
+        }
+        
+        return view('blog.show', compact('blog'));
+    }
+
+    // Show create form
+    public function create()
+    {
+        return view('blog.create');
+    }
+
+    // Show edit form
+    public function edit($id)
+    {
+        $blog = Blog::find($id);
+        if (!$blog) {
+            return redirect()->route('blog.index')->with('error', 'Blog not found');
+        }
+
+        // Check if user owns the blog (for web interface)
+        if (Auth::check() && $blog->user_id !== Auth::id()) {
+            return redirect()->route('blog.index')->with('error', 'Unauthorized');
+        }
+
+        return view('blog.edit', compact('blog'));
     }
 
     // Create new blog
@@ -34,10 +71,14 @@ class BlogController extends Controller
         $blog = Blog::create([
             'title' => $request->title,
             'content' => $request->content,
-            'user_id' => $request->user()->id,
+            'user_id' => Auth::id() ?? 1, // Default to user 1 if not authenticated
         ]);
 
-        return response()->json(['message' => 'Blog created', 'blog' => $blog], 201);
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Blog created', 'blog' => $blog], 201);
+        }
+
+        return redirect()->route('blog.index')->with('success', 'Blog created successfully!');
     }
 
     // Update blog
@@ -45,16 +86,33 @@ class BlogController extends Controller
     {
         $blog = Blog::find($id);
         if (!$blog) {
-            return response()->json(['message' => 'Blog not found'], 404);
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Blog not found'], 404);
+            }
+            return redirect()->route('blog.index')->with('error', 'Blog not found');
         }
 
-        if ($blog->user_id !== $request->user()->id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        // Check authorization
+        $userId = Auth::id() ?? 1;
+        if ($blog->user_id !== $userId) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+            return redirect()->route('blog.index')->with('error', 'Unauthorized');
         }
+
+        $request->validate([
+            'title' => 'required|string|max:255',
+            'content' => 'required|string',
+        ]);
 
         $blog->update($request->only('title', 'content'));
 
-        return response()->json(['message' => 'Blog updated', 'blog' => $blog]);
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Blog updated', 'blog' => $blog]);
+        }
+
+        return redirect()->route('blog.show', $blog->id)->with('success', 'Blog updated successfully!');
     }
 
     // Delete blog
@@ -62,15 +120,27 @@ class BlogController extends Controller
     {
         $blog = Blog::find($id);
         if (!$blog) {
-            return response()->json(['message' => 'Blog not found'], 404);
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Blog not found'], 404);
+            }
+            return redirect()->route('blog.index')->with('error', 'Blog not found');
         }
 
-        if ($blog->user_id !== $request->user()->id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        // Check authorization
+        $userId = Auth::id() ?? 1;
+        if ($blog->user_id !== $userId) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+            return redirect()->route('blog.index')->with('error', 'Unauthorized');
         }
 
         $blog->delete();
 
-        return response()->json(['message' => 'Blog deleted']);
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Blog deleted']);
+        }
+
+        return redirect()->route('blog.index')->with('success', 'Blog deleted successfully!');
     }
 }
